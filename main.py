@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from typing import List
 import pandas as pd
+import chardet
 import uvicorn
 
 app = FastAPI()
@@ -16,10 +17,13 @@ def generate_camelot_path(start_key, direction):
         return [camelot_keys[(index - i) % 12] for i in range(6)]
 
 def clean_dataframe(contents: bytes) -> pd.DataFrame:
+    encoding = chardet.detect(contents)['encoding']
+    if not encoding:
+        raise ValueError("Could not detect encoding.")
     try:
-        df = pd.read_csv(pd.io.common.BytesIO(contents), sep="\t")
-    except:
-        df = pd.read_csv(pd.io.common.BytesIO(contents), sep=",")
+        df = pd.read_csv(pd.io.common.BytesIO(contents), sep="\t", encoding=encoding)
+    except Exception:
+        df = pd.read_csv(pd.io.common.BytesIO(contents), sep=",", encoding=encoding)
     df.columns = [c.strip().lower() for c in df.columns]
     col_map = {
         "track title": "title", "title": "title", "track": "title",
@@ -33,7 +37,6 @@ def clean_dataframe(contents: bytes) -> pd.DataFrame:
 def group_tracks(tracks, start_key, direction):
     path = generate_camelot_path(start_key, direction)
     groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
-    deferred = []
 
     for t in tracks:
         key = t["key"]
