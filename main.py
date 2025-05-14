@@ -90,7 +90,7 @@ async def build_set(
     df = df[["artist", "title", "key", "bpm"]]
     df["match"] = df["artist"].str.lower() + " – " + df["title"].str.lower()
     match = starting_track.strip().lower()
-    match_row = df[df["match"] == match]
+    match_row = df[df["match"].str.contains(match, case=False, na=False)]
     if match_row.empty:
         return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
