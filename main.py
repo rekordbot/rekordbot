@@ -17,15 +17,19 @@ def generate_camelot_path(start_key, direction):
 
 def clean_dataframe(contents: bytes) -> pd.DataFrame:
     try:
-        return pd.read_csv(pd.io.common.BytesIO(contents), sep="\t", encoding="utf-8")
-    except Exception:
+        # Try UTF-8 first
+        text = contents.decode("utf-8")
+        sep = "\t" if "\t" in text else ","
+        return pd.read_csv(pd.io.common.StringIO(text), sep=sep)
+    except UnicodeDecodeError:
         try:
-            return pd.read_csv(pd.io.common.BytesIO(contents), sep="\t", encoding="utf-16")
+            # Then try UTF-16
+            text = contents.decode("utf-16")
+            sep = "\t" if "\t" in text else ","
+            return pd.read_csv(pd.io.common.StringIO(text), sep=sep)
         except Exception:
-            try:
-                return pd.read_csv(pd.io.common.BytesIO(contents), sep=",", encoding="utf-8")
-            except Exception:
-                return pd.read_csv(pd.io.common.BytesIO(contents), sep=",", encoding="utf-16")
+            raise ValueError("Could not decode file with UTF-8 or UTF-16")
+
 
 def group_tracks(tracks, start_key, direction):
     path = generate_camelot_path(start_key, direction)
