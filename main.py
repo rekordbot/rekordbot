@@ -73,11 +73,14 @@ async def build_set(
     file: UploadFile = File(...),
     starting_track: str = Form(...)
 ):
-    contents = await file.read()
     try:
-        df = clean_dataframe(contents)
-    except:
-        return JSONResponse({"error": "Could not parse the file."}, status_code=400)
+    contents = await file.read()
+    if not contents:
+        return JSONResponse({"error": "Uploaded file is empty or unreadable."}, status_code=400)
+    df = clean_dataframe(contents)
+except Exception as e:
+    return JSONResponse({"error": f"File parsing failed: {str(e)}"}, status_code=400)
+
 
     df.columns = [c.strip().lower() for c in df.columns]
     col_map = {
