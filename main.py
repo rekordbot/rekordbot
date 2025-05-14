@@ -71,8 +71,8 @@ def group_tracks(tracks, start_key, direction):
 @app.post("/build_set")
 async def build_set(
     file: UploadFile = File(...),
-    starting_track: str = Form(...),
-    direction: str = Form(...)):
+    starting_track: str = Form(...)
+):
     contents = await file.read()
     try:
         df = clean_dataframe(contents)
