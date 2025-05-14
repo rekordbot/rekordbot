@@ -2,7 +2,6 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from typing import List
 import pandas as pd
-import chardet
 import uvicorn
 
 app = FastAPI()
@@ -17,22 +16,16 @@ def generate_camelot_path(start_key, direction):
         return [camelot_keys[(index - i) % 12] for i in range(6)]
 
 def clean_dataframe(contents: bytes) -> pd.DataFrame:
-    encoding = chardet.detect(contents)['encoding']
-    if not encoding:
-        raise ValueError("Could not detect encoding.")
     try:
-        df = pd.read_csv(pd.io.common.BytesIO(contents), sep="\t", encoding=encoding)
+        return pd.read_csv(pd.io.common.BytesIO(contents), sep="\t", encoding="utf-8")
     except Exception:
-        df = pd.read_csv(pd.io.common.BytesIO(contents), sep=",", encoding=encoding)
-    df.columns = [c.strip().lower() for c in df.columns]
-    col_map = {
-        "track title": "title", "title": "title", "track": "title",
-        "artist": "artist",
-        "key": "key", "musical key": "key",
-        "bpm": "bpm", "tempo": "bpm"
-    }
-    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-    return df[["artist", "title", "key", "bpm"]]
+        try:
+            return pd.read_csv(pd.io.common.BytesIO(contents), sep="\t", encoding="utf-16")
+        except Exception:
+            try:
+                return pd.read_csv(pd.io.common.BytesIO(contents), sep=",", encoding="utf-8")
+            except Exception:
+                return pd.read_csv(pd.io.common.BytesIO(contents), sep=",", encoding="utf-16")
 
 def group_tracks(tracks, start_key, direction):
     path = generate_camelot_path(start_key, direction)
@@ -82,6 +75,15 @@ async def build_set(
     except:
         return JSONResponse({"error": "Could not parse the file."}, status_code=400)
 
+    df.columns = [c.strip().lower() for c in df.columns]
+    col_map = {
+        "track title": "title", "title": "title", "track": "title",
+        "artist": "artist",
+        "key": "key", "musical key": "key",
+        "bpm": "bpm", "tempo": "bpm"
+    }
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+    df = df[["artist", "title", "key", "bpm"]]
     df["match"] = df["artist"].str.lower() + " – " + df["title"].str.lower()
     match = starting_track.strip().lower()
     match_row = df[df["match"] == match]
