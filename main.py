@@ -21,6 +21,9 @@ def convert_major_to_minor(major_key):
     minor_index = (index - 3) % 12
     return camelot_keys[minor_index]
 
+def normalize(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
 def determine_best_direction(tracks, start_key):
     clockwise_path = generate_camelot_path(start_key, "clockwise")
     counter_path = generate_camelot_path(start_key, "counter-clockwise")
@@ -79,7 +82,7 @@ def group_tracks(tracks, start_key_match, direction):
             if minor_key in path:
                 ungrouped.append((t, [(minor_key, "mode")]))
     
-    start_track = next(tr for tr in tracks if tr["match"] == start_key_match)
+    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_key_match)
     start_bpm = float(start_track["bpm"])
 
     for t, matches in ungrouped:
@@ -122,9 +125,6 @@ def group_tracks(tracks, start_key_match, direction):
         output.append(section)
     return output
 
-def normalize(text):
-    return re.sub(r"[^a-z0-9]", "", text.lower())
-
 @app.post("/build_set")
 async def build_set(request: Request):
     try:
@@ -132,20 +132,19 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Remove anything in parentheses or brackets (e.g., (10A), [feat. XYZ])
-        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
-        # Replace en-dashes with hyphens and strip extra spaces
+        clean_input = re.sub(r"[$begin:math:text$\\[].*?[$end:math:text$\]]", "", match_input)
         clean_input = clean_input.replace("–", "-").strip().lower()
-        # Normalize input
         normalized_input = normalize(clean_input)
 
         for t in tracklist:
-            t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
+            raw_match = f'{t["artist"].strip()} – {t["title"].strip()}'
+            t["match"] = raw_match
+            t["normalized"] = normalize(raw_match)
 
-        fuzzy_matches = [t for t in tracklist if normalized_input in normalize(t["match"])]
+        fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
 
         print("Normalized input:", normalized_input)
-        print("Normalized tracklist entries:", [normalize(t["match"]) for t in tracklist])
+        print("Normalized tracklist entries:", [t["normalized"] for t in tracklist])
 
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
@@ -153,7 +152,7 @@ async def build_set(request: Request):
         selected_track = fuzzy_matches[0]
         start_key = selected_track["key"]
         direction = determine_best_direction(tracklist, start_key)
-        grouped = group_tracks(tracklist, selected_track["match"], direction)
+        grouped = group_tracks(tracklist, selected_track["normalized"], direction)
 
         return {
             "starting_key": start_key,
