@@ -137,6 +137,10 @@ async def build_set(request: Request):
             t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
         fuzzy_matches = [t for t in tracklist if normalized_input in normalize(t["match"])]
 
+        # DEBUG: log matching process to Render logs
+        print("Normalized input:", normalized_input)
+        print("Normalized tracklist entries:", [normalize(t["match"]) for t in tracklist])
+
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
