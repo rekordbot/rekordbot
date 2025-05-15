@@ -132,9 +132,12 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Trim trailing key/BPM and normalize
-        base_input = match_input.split(" (")[0]
-        normalized_input = normalize(base_input)
+        # Remove anything in parentheses or brackets (e.g., (10A), [feat. XYZ])
+        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
+        # Replace en-dashes with hyphens and strip extra spaces
+        clean_input = clean_input.replace("–", "-").strip().lower()
+        # Normalize input
+        normalized_input = normalize(clean_input)
 
         for t in tracklist:
             t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
