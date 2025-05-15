@@ -131,13 +131,16 @@ async def build_set(request: Request):
         data = await request.json()
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
-        normalized_input = normalize(match_input)
+
+        # Trim trailing key/BPM and normalize
+        base_input = match_input.split(" (")[0]
+        normalized_input = normalize(base_input)
 
         for t in tracklist:
             t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
+
         fuzzy_matches = [t for t in tracklist if normalized_input in normalize(t["match"])]
 
-        # DEBUG: log matching process to Render logs
         print("Normalized input:", normalized_input)
         print("Normalized tracklist entries:", [normalize(t["match"]) for t in tracklist])
 
