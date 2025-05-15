@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+import re
 
 app = FastAPI()
 
@@ -17,7 +18,6 @@ def convert_major_to_minor(major_key):
     if major_key not in camelot_major_keys:
         return None
     index = camelot_major_keys.index(major_key)
-    # 3 steps counter-clockwise
     minor_index = (index - 3) % 12
     return camelot_keys[minor_index]
 
@@ -122,16 +122,21 @@ def group_tracks(tracks, start_key_match, direction):
         output.append(section)
     return output
 
+def normalize(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
 @app.post("/build_set")
 async def build_set(request: Request):
     try:
         data = await request.json()
         tracklist = data["tracklist"]
-        match_input = data["starting_track"].strip().lower()
-        for t in tracklist:
-            t["match"] = f'{t["artist"].strip().lower()} – {t["title"].strip().lower()}'
+        match_input = data["starting_track"]
+        normalized_input = normalize(match_input)
 
-        fuzzy_matches = [t for t in tracklist if match_input in t["match"]]
+        for t in tracklist:
+            t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
+        fuzzy_matches = [t for t in tracklist if normalized_input in normalize(t["match"])]
+
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
