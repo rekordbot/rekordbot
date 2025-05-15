@@ -58,7 +58,10 @@ def group_tracks(tracks, start_key_match, direction):
     ungrouped = []
 
     start_norm = normalize(start_key_match)
-    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_norm)
+    start_track = next(
+    tr for tr in tracks 
+    if normalize(f'{tr["artist"].strip()} – {tr["title"].strip()}') == start_norm
+    )
     start_bpm = float(start_track["bpm"])
 
     for t in tracks:
