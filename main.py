@@ -57,6 +57,10 @@ def group_tracks(tracks, start_key_match, direction):
     groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
     ungrouped = []
 
+    start_norm = normalize(start_key_match)
+    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_norm)
+    start_bpm = float(start_track["bpm"])
+
     for t in tracks:
         key = t["key"]
         bpm = float(t["bpm"])
@@ -81,10 +85,6 @@ def group_tracks(tracks, start_key_match, direction):
             minor_key = convert_major_to_minor(key)
             if minor_key in path:
                 ungrouped.append((t, [(minor_key, "mode")]))
-    
-    start_norm = re.sub(r"[^a-z0-9]", "", start_key_match.lower())
-    start_track = next(tr for tr in tracks if re.sub(r"[^a-z0-9]", "", tr["match"].lower()) == start_norm)
-    start_bpm = float(start_track["bpm"])
 
     for t, matches in ungrouped:
         if len(matches) == 1:
@@ -133,22 +133,20 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Clean and normalize the user’s input
-        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
-        clean_input = clean_input.replace("–", "-").strip().lower()
-        normalized_input = re.sub(r"[^a-z0-9]", "", clean_input)
-
-        # Add normalized version to each track
+        # Normalize and store fields for each track
         for t in tracklist:
             full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
             t["match"] = full_string
-            t["normalized"] = re.sub(r"[^a-z0-9]", "", full_string.lower())
+            t["normalized"] = normalize(full_string)
 
-        # Logging for debug
+        # Normalize user input
+        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
+        clean_input = clean_input.replace("–", "-").strip().lower()
+        normalized_input = normalize(clean_input)
+
         print("Normalized input:", normalized_input)
         print("Normalized tracklist entries:", [t["normalized"] for t in tracklist])
 
-        # Fuzzy match against normalized values
         fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
 
         if not fuzzy_matches:
