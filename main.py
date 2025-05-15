@@ -53,16 +53,19 @@ def determine_best_direction(tracks, start_key):
     return "clockwise" if cw_count >= ccw_count else "counter-clockwise"
 
 def group_tracks(tracks, start_key_match, direction):
-    path = generate_camelot_path(start_key_match, direction)
-    groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
-    ungrouped = []
+    for t in tracks:
+        t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
 
     start_norm = normalize(start_key_match)
     start_track = next(
-    tr for tr in tracks 
-    if normalize(f'{tr["artist"].strip()} – {tr["title"].strip()}') == start_norm
+        tr for tr in tracks
+        if normalize(tr["match"]) == start_norm
     )
     start_bpm = float(start_track["bpm"])
+
+    path = generate_camelot_path(start_track["key"], direction)
+    groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
+    ungrouped = []
 
     for t in tracks:
         key = t["key"]
@@ -136,22 +139,19 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Normalize and store fields for each track
+        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
+        clean_input = clean_input.replace("–", "-").strip().lower()
+        normalized_input = normalize(clean_input)
+
         for t in tracklist:
             full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
             t["match"] = full_string
             t["normalized"] = normalize(full_string)
 
-        # Normalize user input
-        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
-        clean_input = clean_input.replace("–", "-").strip().lower()
-        normalized_input = normalize(clean_input)
-
         print("Normalized input:", normalized_input)
         print("Normalized tracklist entries:", [t["normalized"] for t in tracklist])
 
         fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
-
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
