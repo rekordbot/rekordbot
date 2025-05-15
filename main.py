@@ -82,7 +82,8 @@ def group_tracks(tracks, start_key_match, direction):
             if minor_key in path:
                 ungrouped.append((t, [(minor_key, "mode")]))
     
-    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_key_match)
+    start_norm = re.sub(r"[^a-z0-9]", "", start_key_match.lower())
+    start_track = next(tr for tr in tracks if re.sub(r"[^a-z0-9]", "", tr["match"].lower()) == start_norm)
     start_bpm = float(start_track["bpm"])
 
     for t, matches in ungrouped:
