@@ -147,7 +147,3 @@ async def build_set(request: Request):
         }
     except Exception as e:
         return JSONResponse({"error": f"Processing failed: {str(e)}"}, status_code=400)
-
-output_path = Path("/mnt/data/upgraded_main.py")
-output_path.write_text(upgraded_main_py)
-output_path.name
