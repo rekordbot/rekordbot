@@ -132,19 +132,23 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        clean_input = re.sub(r"[$begin:math:text$\\[].*?[$end:math:text$\]]", "", match_input)
+        # Clean and normalize the user’s input
+        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
         clean_input = clean_input.replace("–", "-").strip().lower()
-        normalized_input = normalize(clean_input)
+        normalized_input = re.sub(r"[^a-z0-9]", "", clean_input)
 
+        # Add normalized version to each track
         for t in tracklist:
-            raw_match = f'{t["artist"].strip()} – {t["title"].strip()}'
-            t["match"] = raw_match
-            t["normalized"] = normalize(raw_match)
+            full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
+            t["match"] = full_string
+            t["normalized"] = re.sub(r"[^a-z0-9]", "", full_string.lower())
 
-        fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
-
+        # Logging for debug
         print("Normalized input:", normalized_input)
         print("Normalized tracklist entries:", [t["normalized"] for t in tracklist])
+
+        # Fuzzy match against normalized values
+        fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
 
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
@@ -152,12 +156,13 @@ async def build_set(request: Request):
         selected_track = fuzzy_matches[0]
         start_key = selected_track["key"]
         direction = determine_best_direction(tracklist, start_key)
-        grouped = group_tracks(tracklist, selected_track["normalized"], direction)
+        grouped = group_tracks(tracklist, selected_track["match"], direction)
 
         return {
             "starting_key": start_key,
             "direction": direction,
             "groups": grouped
         }
+
     except Exception as e:
         return JSONResponse({"error": f"Processing failed: {str(e)}"}, status_code=400)
