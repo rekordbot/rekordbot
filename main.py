@@ -1,6 +1,5 @@
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import pandas as pd
 
 app = FastAPI()
 
@@ -12,16 +11,6 @@ def generate_camelot_path(start_key, direction):
         return [camelot_keys[(index + i) % 12] for i in range(6)]
     else:
         return [camelot_keys[(index - i) % 12] for i in range(6)]
-
-def clean_dataframe(contents: bytes) -> pd.DataFrame:
-    try:
-        text = contents.decode("utf-8")
-        sep = "\t" if "\t" in text else ","
-        return pd.read_csv(pd.io.common.StringIO(text), sep=sep)
-    except UnicodeDecodeError:
-        text = contents.decode("utf-16")
-        sep = "\t" if "\t" in text else ","
-        return pd.read_csv(pd.io.common.StringIO(text), sep=sep)
 
 def group_tracks(tracks, start_key, direction):
     path = generate_camelot_path(start_key, direction)
@@ -87,43 +76,28 @@ def determine_best_direction(tracks, start_key):
     return "clockwise" if cw_count >= ccw_count else "counter-clockwise"
 
 @app.post("/build_set")
-async def build_set(file: UploadFile = File(...), starting_track: str = Form(...)):
+async def build_set(request: Request):
     try:
-        contents = await file.read()
-        if not contents:
-            return JSONResponse({"error": "Uploaded file is empty or unreadable."}, status_code=400)
-        df = clean_dataframe(contents)
+        data = await request.json()
+        tracklist = data["tracklist"]
+        match = data["starting_track"].strip().lower()
+
+        for t in tracklist:
+            t["match"] = f'{t["artist"].strip().lower()} – {t["title"].strip().lower()}'
+
+        fuzzy_matches = [t for t in tracklist if match in t["match"]]
+        if not fuzzy_matches:
+            return JSONResponse({"error": "Starting track not found."}, status_code=404)
+
+        selected_track = fuzzy_matches[0]
+        start_key = selected_track["key"]
+        direction = determine_best_direction(tracklist, start_key)
+        grouped = group_tracks(tracklist, start_key, direction)
+
+        return {
+            "starting_key": start_key,
+            "direction": direction,
+            "groups": grouped
+        }
     except Exception as e:
-        return JSONResponse({"error": f"File parsing failed: {str(e)}"}, status_code=400)
-
-    df.columns = [c.strip().lower() for c in df.columns]
-    col_map = {
-        "track title": "title", "title": "title", "track": "title",
-        "artist": "artist",
-        "key": "key", "musical key": "key",
-        "bpm": "bpm", "tempo": "bpm"
-    }
-    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-
-    if not {"artist", "title", "key", "bpm"}.issubset(set(df.columns)):
-        return JSONResponse({"error": "Missing required columns in file."}, status_code=400)
-
-    df = df[["artist", "title", "key", "bpm"]].dropna()
-    df["match"] = df["artist"].str.lower() + " – " + df["title"].str.lower()
-    match = starting_track.strip().lower()
-
-    fuzzy_matches = df[df["match"].str.contains(match)]
-    if fuzzy_matches.empty:
-        return JSONResponse({"error": "Starting track not found."}, status_code=404)
-
-    selected_row = fuzzy_matches.iloc[0]
-    start_key = selected_row["key"]
-    records = df.to_dict(orient="records")
-    direction = determine_best_direction(records, start_key)
-    grouped = group_tracks(records, start_key, direction)
-
-    return {
-        "starting_key": start_key,
-        "direction": direction,
-        "groups": grouped
-    }
+        return JSONResponse({"error": f"Processing failed: {str(e)}"}, status_code=400)
