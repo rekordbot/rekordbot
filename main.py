@@ -7,22 +7,22 @@ app = FastAPI()
 camelot_keys = ['1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A']
 camelot_major_keys = ['1B', '2B', '3B', '4B', '5B', '6B', '7B', '8B', '9B', '10B', '11B', '12B']
 
-def convert_major_to_minor(major_key):
-    if major_key in camelot_major_keys:
-        index = camelot_major_keys.index(major_key)
-        minor_index = (index - 3) % 12
-        return camelot_keys[minor_index]
-    return major_key
-
-def normalize(text):
-    return re.sub(r"[^a-z0-9]", "", text.lower())
-
 def generate_camelot_path(start_key, direction):
     index = camelot_keys.index(start_key)
     if direction == "clockwise":
         return [camelot_keys[(index + i) % 12] for i in range(6)]
     else:
         return [camelot_keys[(index - i) % 12] for i in range(6)]
+
+def convert_major_to_minor(major_key):
+    if major_key not in camelot_major_keys:
+        return None
+    index = camelot_major_keys.index(major_key)
+    minor_index = (index - 3) % 12
+    return camelot_keys[minor_index]
+
+def normalize(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
 def determine_best_direction(tracks, start_key):
     clockwise_path = generate_camelot_path(start_key, "clockwise")
@@ -32,6 +32,8 @@ def determine_best_direction(tracks, start_key):
         count = 0
         for t in tracks:
             key = t["key"]
+            if key in camelot_major_keys:
+                key = convert_major_to_minor(key)
             if key in path:
                 count += 1
                 continue
@@ -46,23 +48,35 @@ def determine_best_direction(tracks, start_key):
                     break
         return count
 
-    cw = count_matches(clockwise_path)
-    ccw = count_matches(counter_path)
-    return "clockwise" if cw >= ccw else "counter-clockwise"
+    cw_count = count_matches(clockwise_path)
+    ccw_count = count_matches(counter_path)
+    return "clockwise" if cw_count >= ccw_count else "counter-clockwise"
 
-def group_tracks(tracks, start_key, direction, start_bpm):
-    path = generate_camelot_path(start_key, direction)
+def group_tracks(tracks, start_key_match, direction):
+    path = generate_camelot_path(start_key_match, direction)
     groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
     ungrouped = []
 
     for tr in tracks:
-        key = tr["key"]
-        bpm = float(tr["bpm"])
+        tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
+
+    start_norm = re.sub(r"[^a-z0-9]", "", start_key_match.lower())
+    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_norm)
+    start_bpm = float(start_track["bpm"])
+
+    for t in tracks:
+        key = t["key"]
+        bpm = float(t["bpm"])
+        original_key = key
+        if key in camelot_major_keys:
+            key = convert_major_to_minor(key)
+            t = {**t, "key": key, "original_key": original_key, "shift": "mode"}
+
         if key in path:
-            groups[key]["originals"].append(tr)
+            groups[key]["originals"].append(t)
         elif key in camelot_keys:
-            orig_i = camelot_keys.index(key)
             matches = []
+            orig_i = camelot_keys.index(key)
             for group_key in path:
                 group_i = camelot_keys.index(group_key)
                 delta = (group_i - orig_i) % 12
@@ -71,51 +85,43 @@ def group_tracks(tracks, start_key, direction, start_bpm):
                 elif delta == 7:
                     matches.append((group_key, "+1"))
             if len(matches) == 1:
-                g, s = matches[0]
-                groups[g]["pitch_shifted"].append({**tr, "shift": s})
+                group_key, shift = matches[0]
+                groups[group_key]["pitch_shifted"].append({**t, "shift": shift})
             elif len(matches) == 2:
-                ungrouped.append((tr, matches))
-        elif key in camelot_major_keys:
-            minor = convert_major_to_minor(key)
-            if minor in path:
-                ungrouped.append((tr, [(minor, "mode")]))
+                ungrouped.append((t, matches))
 
     for t, matches in ungrouped:
-        if len(matches) == 1:
-            group_key, shift = matches[0]
-            groups[group_key]["pitch_shifted"].append({**t, "shift": shift})
+        a, b = matches[0][0], matches[1][0]
+        len_a = len(groups[a]["originals"]) + len(groups[a]["pitch_shifted"])
+        len_b = len(groups[b]["originals"]) + len(groups[b]["pitch_shifted"])
+        if len_a < len_b:
+            selected = a
+        elif len_b < len_a:
+            selected = b
         else:
-            a, b = matches[0][0], matches[1][0]
-            len_a = len(groups[a]["originals"]) + len(groups[a]["pitch_shifted"])
-            len_b = len(groups[b]["originals"]) + len(groups[b]["pitch_shifted"])
-            if len_a < len_b:
-                selected = a
-            elif len_b < len_a:
-                selected = b
+            bpm = float(t["bpm"])
+            index_a = path.index(a)
+            index_b = path.index(b)
+            if bpm <= start_bpm + 2:
+                selected = a if index_a < index_b else b
             else:
-                bpm = float(t["bpm"])
-                index_a = path.index(a)
-                index_b = path.index(b)
-                if bpm <= start_bpm + 2:
-                    selected = a if index_a < index_b else b
-                else:
-                    selected = b if index_b > index_a else a
-            selected_shift = [s for g, s in matches if g == selected][0]
-            groups[selected]["pitch_shifted"].append({**t, "shift": selected_shift})
+                selected = b if index_b > index_a else a
+        selected_shift = [s for g, s in matches if g == selected][0]
+        groups[selected]["pitch_shifted"].append({**t, "shift": selected_shift})
 
     output = []
-    for k in path:
-        section = {"group": k, "tracks": []}
-        all_tracks = groups[k]["originals"] + groups[k]["pitch_shifted"]
+    for key in path:
+        section = {"group": key, "tracks": []}
+        all_tracks = groups[key]["originals"] + groups[key]["pitch_shifted"]
         all_tracks.sort(key=lambda x: float(x["bpm"]))
-        for tr in all_tracks:
-            if "shift" in tr:
-                if tr["shift"] == "mode":
-                    label = f'{tr["artist"]} – {tr["title"]} (from {tr["key"]}) – {tr["bpm"]} BPM (mode shift)'
-                else:
-                    label = f'{tr["artist"]} – {tr["title"]} (from {tr["key"]}) – {tr["bpm"]} BPM ({tr["shift"]} semitone shift)'
+        for t in all_tracks:
+            label = f'{t["artist"]} – {t["title"]} '
+            if "original_key" in t:
+                label += f'(from {t["original_key"]}) – {t["bpm"]} BPM (mode shift)'
+            elif "shift" in t:
+                label += f'(from {t["key"]}) – {t["bpm"]} BPM ({t["shift"]} semitone shift)'
             else:
-                label = f'{tr["artist"]} – {tr["title"]} ({tr["key"]}) – {tr["bpm"]} BPM'
+                label += f'({t["key"]}) – {t["bpm"]} BPM'
             section["tracks"].append(label)
         output.append(section)
     return output
@@ -127,27 +133,29 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Build match + normalized fields
-        for tr in tracklist:
-            tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
-            tr["normalized"] = normalize(tr["match"])
+        # Clean and normalize the user’s input
+        clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
+        clean_input = clean_input.replace("–", "-").strip().lower()
+        normalized_input = re.sub(r"[^a-z0-9]", "", clean_input)
 
-        norm_input = normalize(match_input)
-        fuzzy_matches = [tr for tr in tracklist if norm_input in tr["normalized"]]
+        for t in tracklist:
+            full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
+            t["match"] = full_string
+            t["normalized"] = re.sub(r"[^a-z0-9]", "", full_string.lower())
+
+        fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
 
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
         selected_track = fuzzy_matches[0]
         start_key = selected_track["key"]
-        start_bpm = float(selected_track["bpm"])
 
-        # Convert major to minor if needed
         if start_key in camelot_major_keys:
             start_key = convert_major_to_minor(start_key)
 
         direction = determine_best_direction(tracklist, start_key)
-        grouped = group_tracks(tracklist, start_key, direction, start_bpm)
+        grouped = group_tracks(tracklist, selected_track["match"], direction)
 
         return {
             "starting_key": start_key,
