@@ -53,13 +53,8 @@ def determine_best_direction(tracks, start_key):
     return "clockwise" if cw_count >= ccw_count else "counter-clockwise"
 
 def group_tracks(tracks, start_key_match, direction):
-    path = generate_camelot_path(start_key_match, direction)
-    groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
-    ungrouped = []
-
-    # Ensure match field exists
-    for tr in tracks:
-        tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
+    for t in tracks:
+        t["match"] = f'{t["artist"].strip()} – {t["title"].strip()}'
 
     start_norm = normalize(start_key_match)
     start_track = next(
@@ -67,6 +62,10 @@ def group_tracks(tracks, start_key_match, direction):
         if normalize(tr["match"]) == start_norm
     )
     start_bpm = float(start_track["bpm"])
+
+    path = generate_camelot_path(start_track["key"], direction)
+    groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
+    ungrouped = []
 
     for t in tracks:
         key = t["key"]
@@ -140,16 +139,17 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Normalize and clean input
         clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
         clean_input = clean_input.replace("–", "-").strip().lower()
         normalized_input = normalize(clean_input)
 
-        # Prepare normalized tracklist
         for t in tracklist:
             full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
             t["match"] = full_string
             t["normalized"] = normalize(full_string)
+
+        print("Normalized input:", normalized_input)
+        print("Normalized tracklist entries:", [t["normalized"] for t in tracklist])
 
         fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
         if not fuzzy_matches:
@@ -157,14 +157,6 @@ async def build_set(request: Request):
 
         selected_track = fuzzy_matches[0]
         start_key = selected_track["key"]
-
-        # Mode-shift if starting with a major key
-        if start_key in camelot_major_keys:
-            converted = convert_major_to_minor(start_key)
-            if not converted:
-                return JSONResponse({"error": "Could not convert major key to minor."}, status_code=400)
-            start_key = converted
-
         direction = determine_best_direction(tracklist, start_key)
         grouped = group_tracks(tracklist, selected_track["match"], direction)
 
