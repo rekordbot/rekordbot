@@ -57,6 +57,17 @@ def group_tracks(tracks, start_key_match, direction):
     groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
     ungrouped = []
 
+    # Ensure match field exists
+    for tr in tracks:
+        tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
+
+    start_norm = normalize(start_key_match)
+    start_track = next(
+        tr for tr in tracks
+        if normalize(tr["match"]) == start_norm
+    )
+    start_bpm = float(start_track["bpm"])
+
     for t in tracks:
         key = t["key"]
         bpm = float(t["bpm"])
@@ -81,10 +92,6 @@ def group_tracks(tracks, start_key_match, direction):
             minor_key = convert_major_to_minor(key)
             if minor_key in path:
                 ungrouped.append((t, [(minor_key, "mode")]))
-
-    start_norm = re.sub(r"[^a-z0-9]", "", start_key_match.lower())
-    start_track = next(tr for tr in tracks if re.sub(r"[^a-z0-9]", "", tr["match"].lower()) == start_norm)
-    start_bpm = float(start_track["bpm"])
 
     for t, matches in ungrouped:
         if len(matches) == 1:
@@ -133,32 +140,30 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Clean and normalize the user’s input
+        # Normalize and clean input
         clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
         clean_input = clean_input.replace("–", "-").strip().lower()
-        normalized_input = re.sub(r"[^a-z0-9]", "", clean_input)
+        normalized_input = normalize(clean_input)
 
-        # Add normalized version to each track
+        # Prepare normalized tracklist
         for t in tracklist:
             full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
             t["match"] = full_string
-            t["normalized"] = re.sub(r"[^a-z0-9]", "", full_string.lower())
+            t["normalized"] = normalize(full_string)
 
-        # Match by fuzzy normalized string
         fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
-
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
         selected_track = fuzzy_matches[0]
         start_key = selected_track["key"]
 
-        # Group 1: Mode shift major key before proceeding
+        # Mode-shift if starting with a major key
         if start_key in camelot_major_keys:
-            converted_key = convert_major_to_minor(start_key)
-            if converted_key is None:
-                return JSONResponse({"error": f"Could not mode shift key {start_key}."}, status_code=400)
-            start_key = converted_key
+            converted = convert_major_to_minor(start_key)
+            if not converted:
+                return JSONResponse({"error": "Could not convert major key to minor."}, status_code=400)
+            start_key = converted
 
         direction = determine_best_direction(tracklist, start_key)
         grouped = group_tracks(tracklist, selected_track["match"], direction)
