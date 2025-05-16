@@ -18,8 +18,7 @@ def convert_major_to_minor(major_key):
     if major_key not in camelot_major_keys:
         return None
     index = camelot_major_keys.index(major_key)
-    minor_index = (index - 3) % 12
-    return camelot_keys[minor_index]
+    return camelot_keys[(index - 3) % 12]
 
 def normalize(text):
     return re.sub(r"[^a-z0-9]", "", text.lower())
@@ -57,6 +56,13 @@ def group_tracks(tracks, start_key_match, direction):
     groups = {k: {"originals": [], "pitch_shifted": []} for k in path}
     ungrouped = []
 
+    # Restore internal match logic
+    start_norm = normalize(start_key_match)
+    for tr in tracks:
+        tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
+    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_norm)
+    start_bpm = float(start_track["bpm"])
+
     for t in tracks:
         key = t["key"]
         bpm = float(t["bpm"])
@@ -81,10 +87,6 @@ def group_tracks(tracks, start_key_match, direction):
             minor_key = convert_major_to_minor(key)
             if minor_key in path:
                 ungrouped.append((t, [(minor_key, "mode")]))
-
-    start_norm = normalize(start_key_match)
-    start_track = next(tr for tr in tracks if normalize(tr["match"]) == start_norm)
-    start_bpm = float(start_track["bpm"])
 
     for t, matches in ungrouped:
         if len(matches) == 1:
@@ -133,24 +135,29 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
-        # Clean and normalize user input
+        # Clean and normalize the input
         clean_input = re.sub(r"[\(\[].*?[\)\]]", "", match_input)
         clean_input = clean_input.replace("–", "-").strip().lower()
         normalized_input = normalize(clean_input)
 
-        # Annotate tracklist entries with match and normalized strings
-        for tr in tracklist:
-            tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
-            tr["normalized"] = normalize(tr["match"])
+        for t in tracklist:
+            full_string = f'{t["artist"].strip()} – {t["title"].strip()}'
+            t["match"] = full_string
+            t["normalized"] = normalize(full_string)
 
-        fuzzy_matches = [tr for tr in tracklist if normalized_input in tr["normalized"]]
+        fuzzy_matches = [t for t in tracklist if normalized_input in t["normalized"]]
         if not fuzzy_matches:
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
-        selected = fuzzy_matches[0]
-        start_key = selected["key"]
+        selected_track = fuzzy_matches[0]
+        start_key = selected_track["key"]
+
+        # Convert major key to minor for start key if needed
+        if start_key in camelot_major_keys:
+            start_key = convert_major_to_minor(start_key)
+
         direction = determine_best_direction(tracklist, start_key)
-        grouped = group_tracks(tracklist, selected["match"], direction)
+        grouped = group_tracks(tracklist, selected_track["match"], direction)
 
         return {
             "starting_key": start_key,
