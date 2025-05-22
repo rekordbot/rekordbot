@@ -127,6 +127,15 @@ async def build_set(request: Request):
         tracklist = data["tracklist"]
         match_input = data["starting_track"]
 
+        # Extract semitone shift if specified in user input
+        semitone_shift = None
+        if match_input.lower().endswith("+1 semitone"):
+            semitone_shift = "+1"
+            match_input = match_input[:-12].strip()
+        elif match_input.lower().endswith("-1 semitone"):
+            semitone_shift = "-1"
+            match_input = match_input[:-12].strip()
+
         # Build match + normalized fields
         for tr in tracklist:
             tr["match"] = f'{tr["artist"].strip()} – {tr["title"].strip()}'
@@ -139,12 +148,21 @@ async def build_set(request: Request):
             return JSONResponse({"error": "Starting track not found."}, status_code=404)
 
         selected_track = fuzzy_matches[0]
-        start_key = selected_track["key"]
+        original_key = selected_track["key"]
+        start_key = original_key
         start_bpm = float(selected_track["bpm"])
 
         # Convert major to minor if needed
         if start_key in camelot_major_keys:
             start_key = convert_major_to_minor(start_key)
+
+        # Apply +1 / -1 semitone shift
+        if start_key in camelot_keys and semitone_shift:
+            index = camelot_keys.index(start_key)
+            if semitone_shift == "+1":
+                start_key = camelot_keys[(index - 5) % 12]
+            elif semitone_shift == "-1":
+                start_key = camelot_keys[(index + 5) % 12]
 
         direction = determine_best_direction(tracklist, start_key)
         grouped = group_tracks(tracklist, start_key, direction, start_bpm)
